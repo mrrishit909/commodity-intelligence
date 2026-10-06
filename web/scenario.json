@@ -1,0 +1,226 @@
+{
+ "service": "commodity-intelligence",
+ "run": "demo-1",
+ "tokens": {
+  "head": "desk-head-demo",
+  "analyst": "desk-analyst-demo",
+  "viewer": "desk-viewer-demo"
+ },
+ "steps": [
+  {
+   "title": "Load the copper market and back-test the nowcast",
+   "say": "An invented copper market, six years of weeks: three mining regions shipping through three ports to three importers, weekly prices and a 3-month spread, exchange stocks, a macro index, and 5,000-odd cargoes. Official production and demand figures arrive eight weeks after each four-week period ends. The nowcast is a two-state Kalman filter (supply, demand) fed by departures, stock changes and the macro index, anchored by official figures where published; it is back-tested on the last 32 periods against the last official figure and a plain regression. The response also carries the real balance of the current period, which the models never see.",
+   "calls": [
+    {
+     "key": "load",
+     "as": "head",
+     "method": "POST",
+     "path": "/v1/market:load",
+     "body": {
+      "seed": 17
+     }
+    }
+   ]
+  },
+  {
+   "title": "Copper flows, mine to port to importer",
+   "say": "Cargoes at sea by route, the tonnage due at each importer in the next four weeks, what each origin has shipped in the last month, and anything overdue. Then the balance view: the nowcast with its band and what each signal contributed, the last official figure and how old it is, stocks, cover, price and spread.",
+   "calls": [
+    {
+     "key": "flows",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/flows?commodity={{load.result.commodity_id}}"
+    },
+    {
+     "key": "flows_cn",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/flows?commodity={{load.result.commodity_id}}&region=China"
+    },
+    {
+     "key": "bal0",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/commodities/{{load.result.commodity_id}}/balance"
+    },
+    {
+     "key": "nc0",
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/forecasts/nowcast",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}"
+     }
+    }
+   ]
+  },
+  {
+   "title": "Eight weeks pass: a mine outage and a congested port",
+   "say": "The feeds move forward eight weeks. The generator is told what happens, which is the demo's way of injecting a disruption: Chile loses 35% of production for ten weeks and Callao adds two weeks to every voyage for eight. The service sees only the data: prices, stocks, cargoes, and two newly published official periods that predate the outage.",
+   "calls": [
+    {
+     "key": "adv",
+     "as": "head",
+     "method": "POST",
+     "path": "/v1/market:advance",
+     "body": {
+      "weeks": 8,
+      "shocks": [
+       {
+        "kind": "outage",
+        "region": "Chile",
+        "start": 1,
+        "weeks": 10,
+        "cut": 0.35
+       },
+       {
+        "kind": "congestion",
+        "port": "Callao",
+        "start": 1,
+        "weeks": 8,
+        "extra_weeks": 2
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "title": "What the shipping data says",
+   "say": "Change-point detection on departures by origin and overdue cargo by port: Antofagasta departures have dropped about 27 kt a week against their normal level, and cargo out of Callao is running late. An analyst records both as events, each with a source, so the timeline carries provenance rather than a model's guess.",
+   "calls": [
+    {
+     "key": "anom",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/signals/anomalies"
+    },
+    {
+     "key": "ev1",
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/events",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}",
+      "event_type": "mine_outage",
+      "region": "Chile",
+      "occurred_at": "2026-07-13T09:00:00+00:00",
+      "severity": 0.7,
+      "source_uri": "https://example.invalid/mining-weekly/2026/07/escondida-north-pit-suspension",
+      "detail": {
+       "what": "pit wall failure, partial suspension",
+       "operator_statement": "restart in two to three months"
+      }
+     }
+    },
+    {
+     "key": "ev2",
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/events",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}",
+      "event_type": "port_congestion",
+      "region": "Peru",
+      "occurred_at": "2026-07-14T09:00:00+00:00",
+      "severity": 0.4,
+      "source_uri": "https://example.invalid/port-authority/callao/notice-2026-31",
+      "detail": {
+       "what": "berth maintenance, vessels queuing"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "title": "The revised nowcast, and exactly what moved it",
+   "say": "The balance nowcast is rerun. Against the run eight weeks earlier it has swung into deficit, and the revision is decomposed signal by signal: how much came from departures, from stock draws, from the macro index, and how much from re-anchoring on the newly published official figures. The inventory forecast at 4, 8 and 12 weeks falls with it. The hidden truth is shown beside the band.",
+   "calls": [
+    {
+     "key": "nc1",
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/forecasts/nowcast",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}"
+     }
+    },
+    {
+     "key": "bal1",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/commodities/{{load.result.commodity_id}}/balance"
+    }
+   ]
+  },
+  {
+   "title": "Baseline against the disruption continuing",
+   "say": "A scenario: the outage runs another eight weeks and the port stays congested four more. Production cuts and delayed arrivals are propagated through the fitted stock equation to inventory and cover, and a price band comes from the fitted price-cover relation. The band is wide and the page says why: the relation is structural, fitted on this market's history, and not a forecast of what traders will do. The baseline path sits beside it.",
+   "calls": [
+    {
+     "key": "scen",
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/scenarios",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}",
+      "weeks": 12,
+      "shocks": [
+       {
+        "kind": "outage",
+        "region": "Chile",
+        "start": 0,
+        "weeks": 8,
+        "cut": 0.35
+       },
+       {
+        "kind": "congestion",
+        "port": "Callao",
+        "start": 0,
+        "weeks": 4,
+        "extra_weeks": 2
+       }
+      ]
+     }
+    },
+    {
+     "key": "badscen",
+     "expect_error": true,
+     "as": "analyst",
+     "method": "POST",
+     "path": "/v1/scenarios",
+     "body": {
+      "commodity_id": "{{load.result.commodity_id}}",
+      "shocks": [
+       {
+        "kind": "outage",
+        "region": "Mars",
+        "weeks": 4,
+        "cut": 0.5
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "title": "The research timeline",
+   "say": "Events with their sources, both nowcast runs with their bands, the shipping anomalies and the feed's own clock, in time order; then the audit log of who loaded, advanced, recorded and ran what.",
+   "calls": [
+    {
+     "key": "timeline",
+     "as": "viewer",
+     "method": "GET",
+     "path": "/v1/research/timeline"
+    },
+    {
+     "key": "audit",
+     "as": "head",
+     "method": "GET",
+     "path": "/v1/audit?limit=12"
+    }
+   ]
+  }
+ ]
+}
